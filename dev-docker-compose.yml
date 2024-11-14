@@ -85,6 +85,7 @@ services:
       - ./Global-Configs/Master-Key:/opt/wireguarddashboard/src/master-key
 
     environment:
+      - WIREGATE_STANDALONE=true
     #Config Path Optional
      #- WGD_CONF_PATH="/etc/wireguard"
     #Use Ofuscated Wireguard (AmneziaWG)

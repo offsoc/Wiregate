@@ -1,6 +1,6 @@
 listen_addresses = ['0.0.0.0:5053']
- proxy = 'socks5://wiregate:9053'
-# http_proxy = 'http://wiregate:59040'
+proxy = 'socks5://wiregate:9053'
+
 
 force_tcp = true
 
