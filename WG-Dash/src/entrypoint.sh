@@ -298,9 +298,10 @@ fi
 
 
 
-
-
-
+if [[ "$WIREGATE_STANDALONE" == "true" ]]; then
+    WGD_DNS=$INET_ADDR
+    WGD_IPTABLES_DNS=$INET_ADDR
+fi
 
 /opt/wireguarddashboard/src/wgd.sh install
 /opt/wireguarddashboard/src/wgd.sh docker_start &
@@ -325,11 +326,9 @@ EOF
     tee "$DNSMASQ_CONFIG" &> /dev/null << EOF
     pid-file=/var/run/dnsmasq.pid
     interface=$_IFACE
-    user=dnsmasq
-    group=dnsmasq
     bind-dynamic
     no-resolv
-    no-poll
+    #no-poll
     no-negcache
     bogus-priv
     log-queries
