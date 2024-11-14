@@ -295,9 +295,6 @@ if [[ "$WGD_TOR_PROXY" == "true" ]]; then
 fi
 
 
-
-
-
 if [[ "$WIREGATE_STANDALONE" == "true" ]]; then
     WGD_DNS=$INET_ADDR
     WGD_IPTABLES_DNS=$INET_ADDR
