@@ -133,7 +133,7 @@ make_dns_torrc() {
     echo -e "VirtualAddrNetwork 10.193.0.0/10 \n" >> "$DNS_TORRC_PATH"
 
     if [[ "$WIREGATE_STANDALONE" == "true" ]]; then
-    echo -e "DNSPort 5353 \n" >> "$DNS_TORRC_PATH"
+    echo -e "DNSPort $INET_ADDR:5353 \n" >> "$DNS_TORRC_PATH"
     fi
 
     echo -e "ControlPort 9054 \n" >> "$DNS_TORRC_PATH"
