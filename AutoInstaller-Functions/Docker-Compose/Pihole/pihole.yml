@@ -101,10 +101,11 @@ services:
 
       #Tor Settings
       ##########################################################
-        - WGD_TOR_PROXY=${WGD_TOR_PROXY}         #Enable Tor
-        - WGD_TOR_EXIT_NODES=${WGD_TOR_EXIT_NODES}   #Ex. {gb},{fr}
-        - WGD_TOR_BRIDGES=${WGD_TOR_BRIDGES}       #Enable Tor Bridges
-        - WGD_TOR_PLUGIN=${WGD_TOR_PLUGIN}   #OPTIONS webtunnel, obfs4, snowflake
+        - WGD_TOR_PROXY=${WGD_TOR_PROXY}            #Enable Tor
+        - WGD_TOR_EXIT_NODES=${WGD_TOR_EXIT_NODES}  #Ex. {gb},{fr}
+        - WGD_TOR_DNS_EXIT_NODES=${WGD_TOR_DNS_EXIT_NODES}               #Ex. {gb},{fr}
+        - WGD_TOR_BRIDGES=${WGD_TOR_BRIDGES}        #Enable Tor Bridges
+        - WGD_TOR_PLUGIN=${WGD_TOR_PLUGIN}  
       #WGDashboard Global Settings
       ##########################################################
         - WGD_WELCOME_SESSION=false

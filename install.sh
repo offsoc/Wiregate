@@ -12,6 +12,7 @@ export WGD_TOR_PROXY="false"
 export WGD_TOR_PLUGIN="obfs4"
 export WGD_TOR_BRIDGES="false"
 export WGD_TOR_EXIT_NODES="default"
+export WGD_TOR_DNS_EXIT_NODES="default"
 export AMNEZIA_WG="false"
 export PROTOCOL_TYPE="WireGuard"
 export DEPLOY_STATE="STATIC"
@@ -379,6 +380,16 @@ compose_down() {
 # Parse options with getopts
 while getopts ":c:n:t:p:s:" opt; do
   case $opt in
+    tdns)  
+     if [[ "${OPTARG}" =~ \{[A-Za-z][A-Za-z]\}(,\{[A-Za-z][A-Za-z]\})* ]]; then
+        WGD_TOR_DNS_EXIT_NODES="${OPTARG}"
+        export WGD_TOR_DNS_EXIT_NODES
+      else
+        
+        echo "Invalid input for -e. Expected format: {US},{GB},{AU}, etc."
+        exit 1
+      fi
+      ;;
     c)  # Deployment system (Docker or Podman)
       case "${OPTARG}" in
         Docker)
