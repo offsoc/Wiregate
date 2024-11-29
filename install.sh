@@ -378,7 +378,7 @@ compose_down() {
 
 
 # Parse options with getopts
-while getopts ":c:n:t:p:s:" opt; do
+while getopts ":c:n:t:p:s:tdns:" opt; do
   case $opt in
     tdns)  
      if [[ "${OPTARG}" =~ \{[A-Za-z][A-Za-z]\}(,\{[A-Za-z][A-Za-z]\})* ]]; then
