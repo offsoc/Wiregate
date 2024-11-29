@@ -295,7 +295,7 @@ compose_down() {
         export TAG="$latest_tag"
     }
     dev_build() {
-        local adguard_yaml_file="./Global-Configs/AdGuard/Config/AdGuardHome.yaml"
+        local adguard_yaml_file="./configs/adguard/AdGuardHome.yaml"
         local adguard_password='$2a$12$t6CGhUcXtY6lGF2/A9Jd..Wn315A0RIiuhLlHbNHG2EmDbsN7miwO'
         local adguard_user="admin"
 
@@ -311,7 +311,7 @@ compose_down() {
 
     }
     rm_exst_configs() {
-        local masterkey_file="/Global-Configs/Master-Key/master.conf"
+        local masterkey_file="./configs/master-key/master.conf"
         if [ -f "$masterkey_file" ]; then
             echo "Removing existing '$masterkey_file'..."
             sudo rm "$masterkey_file"
