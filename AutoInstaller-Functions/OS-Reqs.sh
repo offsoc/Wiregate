@@ -212,8 +212,27 @@ install_requirements() {
             install_docker
         fi
 
+        check_command() {
+            if ! command -v "$1" &> /dev/null; then
+                echo "Error: $1 is not installed. Please install it to proceed."
+                return 1
+            fi
+            return 0
+        }
+
         if [[ "$DEPLOY_SYSTEM" == "podman" ]]; then
-            clear 
+            clear
+            echo "Checking for required tools..."
+
+            # Check for Podman
+            check_command "podman" || { podman_install_title; exit 1; }
+
+            # Check for Podman Compose (either podman-compose or 'podman compose')
+            if ! (command -v "podman-compose" &> /dev/null || podman compose version &> /dev/null); then
+                echo "Error: podman-compose or 'podman compose' is not installed. Please install it to proceed."
+                exit 1
+            fi
+
             podman_install_title
             exit 1
         fi
