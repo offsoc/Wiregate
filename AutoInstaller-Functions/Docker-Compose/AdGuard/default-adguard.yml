@@ -90,7 +90,6 @@ services:
       ##########################################################
         - WGD_WELCOME_SESSION=false
         - WGD_AUTH_REQ=true
-        - WGD_WELCOME_SESSION=false
         - WGD_USER=${WGD_USER}
         - WGD_PASS=${WGD_PASS}
         - WGD_REMOTE_ENDPOINT=${WGD_REMOTE_ENDPOINT}
