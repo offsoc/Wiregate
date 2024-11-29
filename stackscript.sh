@@ -59,7 +59,7 @@ INSTALL_ARGS=()
 [ -n "$DPROTO" ] && INSTALL_ARGS+=("-p" "$DPROTO")
 [ -n "$TOR" ] && INSTALL_ARGS+=("-t" "$TOR")
 [ -n "$TNODE" ] && INSTALL_ARGS+=("-n" "$TNODE")
-[ -n "$T_DNS_NODE" ] && INSTALL_ARGS+=("-n" "$T_DNS_NODE")
+[ -n "$T_DNS_NODE" ] && INSTALL_ARGS+=("-l" "$T_DNS_NODE")
 [ -n "$ENV" ] && INSTALL_ARGS+=("$ENV")
 
 # Execute the install script with the constructed arguments
