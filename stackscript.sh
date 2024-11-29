@@ -13,7 +13,7 @@ DSTATE=""
 DPROTO=""
 
 # Parse options
-while getopts "b:e:t:n:d:c:s:p:" opt; do
+while getopts "b:e:t:n:d:c:s:p:l:" opt; do
   case "$opt" in
     b)  BRANCH="$OPTARG" ;;     # -b for branch
     e)  ENV="$OPTARG" ;;        # -e for ENV
