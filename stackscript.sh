@@ -19,6 +19,7 @@ while getopts "b:e:t:n:d:c:s:p:" opt; do
     e)  ENV="$OPTARG" ;;        # -e for ENV
     t)  TOR="$OPTARG" ;;        # -t for TOR
     n)  TNODE="$OPTARG" ;;      # -n for TNODE
+    l)  T_DNS_NODE="$OPTARG" ;; # -l for T_DNS_NODE
     d)  DIND="$OPTARG" ;;       # -d for DIND
     c)  DSYS="$OPTARG" ;;       # -c for DSYS
     s)  DSTATE="$OPTARG" ;;     # -s for DSTATE
@@ -57,6 +58,7 @@ INSTALL_ARGS=()
 [ -n "$DPROTO" ] && INSTALL_ARGS+=("-p" "$DPROTO")
 [ -n "$TOR" ] && INSTALL_ARGS+=("-t" "$TOR")
 [ -n "$TNODE" ] && INSTALL_ARGS+=("-n" "$TNODE")
+[ -n "$T_DNS_NODE" ] && INSTALL_ARGS+=("-n" "$T_DNS_NODE")
 [ -n "$ENV" ] && INSTALL_ARGS+=("$ENV")
 
 # Execute the install script with the constructed arguments

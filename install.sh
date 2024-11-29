@@ -378,9 +378,9 @@ compose_down() {
 
 
 # Parse options with getopts
-while getopts ":c:n:t:p:s:tdns:" opt; do
+while getopts ":c:n:t:p:s:l:" opt; do
   case $opt in
-    tdns)  
+    l)  
      if [[ "${OPTARG}" =~ \{[A-Za-z][A-Za-z]\}(,\{[A-Za-z][A-Za-z]\})* ]]; then
         WGD_TOR_DNS_EXIT_NODES="${OPTARG}"
         export WGD_TOR_DNS_EXIT_NODES
