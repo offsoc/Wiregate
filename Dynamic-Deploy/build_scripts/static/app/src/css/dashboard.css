@@ -74,8 +74,6 @@
     inherits: false;
 }
 
-
-
 @property --brandColor2 {
     syntax: '<color>';
     initial-value: #004400;
@@ -100,8 +98,6 @@
     initial-value: #ffffff;
     inherits: false;
 }
-
-
 
 @property --distance2{
     syntax: '<percentage>';
@@ -426,7 +422,19 @@
     box-shadow: 0 0 0 3px rgba(255, 255, 255, .25);
 }
 
+.dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50px;
+    display: inline-block;
+    margin-left: auto !important;
+    background-color: #6c757d;
+}
 
+.dot.active{
+    background-color: #28a745!important;
+    box-shadow: 0 0 0 0.2rem #28a74545;
+}
 
 .h6-dot-running {
     margin-left: 0.3rem;
@@ -775,13 +783,6 @@ main {
     /*padding: 0.6rem 0.9em;*/
 }
 
-.login-box #username,
-.login-box #password,
-.login-box #totp
-{
-    padding: 0.6rem calc( 0.9rem + 32px);
-    height: inherit;
-}
 
 .login-box label[for="username"],
 .login-box label[for="password"],
@@ -794,15 +795,6 @@ main {
     padding: 0;
 }
 
-
-
-/*label[for="password"]{*/
-
-
-/*    transform: translateY(32px) translateX(16px);*/
-
-
-/*}*/
 
 .modal-content {
     border-radius: 10px;

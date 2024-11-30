@@ -31,6 +31,11 @@ from json import JSONEncoder
 from flask_cors import CORS
 from icmplib import ping, traceroute
 from flask.json.provider import DefaultJSONProvider
+from Utilities import (
+    RegexMatch, GetRemoteEndpoint, StringToBoolean, 
+    ValidateIPAddressesWithRange, ValidateIPAddresses, ValidateDNSAddress,
+    GenerateWireguardPublicKey, GenerateWireguardPrivateKey
+)
 
 
 
@@ -102,10 +107,24 @@ class ModelEncoder(JSONEncoder):
         else:
             return super(ModelEncoder, self).default(o)
 
-'''
-Classes
-'''
+class CustomJsonEncoder(DefaultJSONProvider):
+    def __init__(self, app):
+        super().__init__(app)
 
+    def default(self, o):
+        if (isinstance(o, WireguardConfiguration)
+                or isinstance(o, Peer)
+                or isinstance(o, PeerJob)
+                or isinstance(o, Log)
+                or isinstance(o, DashboardAPIKey)
+                or isinstance(o, PeerShareLink)):
+            return o.toJson()
+        return super().default(self, o)
+app.json = CustomJsonEncoder(app)
+
+'''
+Response Object
+'''
 def ResponseObject(status=True, message=None, data=None) -> Flask.response_class:
     response = Flask.make_response(app, {
         "status": status,
@@ -115,24 +134,9 @@ def ResponseObject(status=True, message=None, data=None) -> Flask.response_class
     response.content_type = "application/json"
     return response
 
-
-class CustomJsonEncoder(DefaultJSONProvider):
-    def __init__(self, app):
-        super().__init__(app)
-
-    def default(self, o):
-        if (isinstance(o, WireguardConfiguration) 
-                or isinstance(o, Peer) 
-                or isinstance(o, PeerJob) 
-                or isinstance(o, Log) 
-                or isinstance(o, DashboardAPIKey)
-                or isinstance(o, PeerShareLink)):
-            return o.toJson()
-        return super().default(self, o)
-
-
-app.json = CustomJsonEncoder(app)
-
+"""
+Log Class
+"""
 class Log:
     def __init__(self, LogID: str, JobID: str, LogDate: str, Status: str, Message: str):
         self.LogID = LogID
@@ -152,7 +156,10 @@ class Log:
 
     def __dict__(self):
         return self.toJson()
-    
+
+"""
+Dashboard Logger Class
+"""
 class DashboardLogger:
     def __init__(self):
         self.loggerdb = sqlite3.connect(os.path.join(CONFIGURATION_PATH, 'db', 'wgdashboard_log.db'),
@@ -184,7 +191,10 @@ class DashboardLogger:
         except Exception as e:
             print(f"[WGDashboard] Access Log Error: {str(e)}")
             return False
-    
+
+"""
+Peer Job Logger
+"""
 class PeerJobLogger:
     def __init__(self):
         self.loggerdb = sqlite3.connect(os.path.join(CONFIGURATION_PATH, 'db', 'wgdashboard_log.db'),
@@ -232,7 +242,10 @@ class PeerJobLogger:
         except Exception as e:
             return logs
         return logs
-            
+
+"""
+Peer Job
+"""
 class PeerJob:
     def __init__(self, JobID: str, Configuration: str, Peer: str,
                  Field: str, Operator: str, Value: str, CreationDate: datetime, ExpireDate: datetime, Action: str):
@@ -262,6 +275,9 @@ class PeerJob:
     def __dict__(self):
         return self.toJson()
 
+"""
+Peer Jobs
+"""
 class PeerJobs:
 
     def __init__(self):
@@ -423,7 +439,10 @@ class PeerJobs:
             return x > y
         if operator == "lst":
             return x < y
-
+        
+"""
+Peer Share Link
+"""
 class PeerShareLink:
     def __init__(self, ShareID:str, Configuration: str, Peer: str, ExpireDate: datetime, ShareDate: datetime):
         self.ShareID = ShareID
@@ -441,6 +460,9 @@ class PeerShareLink:
             "ExpireDate": self.ExpireDate
         }
 
+"""
+Peer Share Links
+"""
 class PeerShareLinks:
     def __init__(self):
         self.Links: list[PeerShareLink] = []
@@ -485,7 +507,10 @@ class PeerShareLinks:
         sqlUpdate("UPDATE PeerShareLinks SET ExpireDate = ? WHERE ShareID = ?;", (ExpireDate, ShareID, ))
         self.__getSharedLinks()
         return True, ""
-        
+
+"""
+WireGuard Configuration
+""" 
 class WireguardConfiguration:
     class InvalidConfigurationFileException(Exception):
         def __init__(self, m):
@@ -547,7 +572,7 @@ class WireguardConfiguration:
             for i in dir(self):
                 if str(i) in data.keys():
                     if isinstance(getattr(self, i), bool):
-                        setattr(self, i, _strToBool(data[i]))
+                        setattr(self, i, StringToBoolean(data[i]))
                     else:
                         setattr(self, i, str(data[i]))
             
@@ -572,29 +597,53 @@ class WireguardConfiguration:
         if self.getAutostartStatus() and not self.getStatus() and startup:
             self.toggleConfiguration()
             print(f"[WGDashboard] Autostart Configuration: {name}")
-        
-                      
+                           
     def __initPeersList(self):
         self.Peers: list[Peer] = []
         self.getPeersList()
         self.getRestrictedPeersList()
     
     def __parseConfigurationFile(self):
-        self.__parser.read_file(open(self.__configPath))
-        sections = self.__parser.sections()
-        if "Interface" not in sections:
-            raise self.InvalidConfigurationFileException(
-                "[Interface] section not found in " + os.path.join(DashboardConfig.GetConfig("Server", "wg_conf_path")[1], f'{self.Name}.conf'))
-        interfaceConfig = dict(self.__parser.items("Interface", True))
-        for i in dir(self):
-            if str(i) in interfaceConfig.keys():
-                if isinstance(getattr(self, i), bool):
-                    setattr(self, i, _strToBool(interfaceConfig[i]))
-                else:
-                    setattr(self, i, interfaceConfig[i])
-        if self.PrivateKey:
-            self.PublicKey = self.__getPublicKey()
-        self.Status = self.getStatus()
+        with open(self.__configPath, 'r') as f:
+            original = [l.rstrip("\n") for l in f.readlines()]
+            try:
+                start = original.index("[Interface]")
+                
+                # Clean
+                for i in range(start, len(original)):
+                    if original[i] == "[Peer]":
+                        break
+                    split = re.split(r'\s*=\s*', original[i], 1)
+                    if len(split) == 2:
+                        key = split[0]
+                        if key in dir(self):
+                            if isinstance(getattr(self, key), bool):
+                                setattr(self, key, False)
+                            else:
+                                setattr(self, key, "")
+                
+                # Set
+                for i in range(start, len(original)):
+                    if original[i] == "[Peer]":
+                        break
+                    split = re.split(r'\s*=\s*', original[i], 1)
+                    if len(split) == 2:
+                        key = split[0]
+                        value = split[1]
+                        if key in dir(self):
+                            if isinstance(getattr(self, key), bool):
+                                setattr(self, key, StringToBoolean(value))
+                            else:
+                                if len(getattr(self, key)) > 0:
+                                    setattr(self, key, f"{getattr(self, key)}, {value}")
+                                else:
+                                    setattr(self, key, value)  
+            except ValueError as e:
+                raise self.InvalidConfigurationFileException(
+                        "[Interface] section not found in " + self.__configPath)
+            if self.PrivateKey:
+                self.PublicKey = self.__getPublicKey()
+            self.Status = self.getStatus()
     
     def __dropDatabase(self):
         existingTables = sqlSelect(f"SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '{self.Name}%'").fetchall()
@@ -685,7 +734,7 @@ class WireguardConfiguration:
         return True
         
     def __getPublicKey(self) -> str:
-        return _generatePublicKey(self.PrivateKey)[1]
+        return GenerateWireguardPublicKey(self.PrivateKey)[1]
 
     def getStatus(self) -> bool:
         self.Status = self.Name in psutil.net_if_addrs().keys()
@@ -718,19 +767,19 @@ class WireguardConfiguration:
                     peerStarts = content.index("[Peer]")
                     content = content[peerStarts:]
                     for i in content:
-                        if not regex_match("#(.*)", i) and not regex_match(";(.*)", i):
+                        if not RegexMatch("#(.*)", i) and not RegexMatch(";(.*)", i):
                             if i == "[Peer]":
                                 pCounter += 1
                                 p.append({})
                                 p[pCounter]["name"] = ""
                             else:
                                 if len(i) > 0:
-                                    split = re.split(r'\s*=\s*', i, maxsplit=1)
+                                    split = re.split(r'\s*=\s*', i, 1)
                                     if len(split) == 2:
                                         p[pCounter][split[0]] = split[1]
                         
-                        if regex_match("#Name# = (.*)", i):
-                            split = re.split(r'\s*=\s*', i, maxsplit=1)
+                        if RegexMatch("#Name# = (.*)", i):
+                            split = re.split(r'\s*=\s*', i, 1)
                             if len(split) == 2:
                                 p[pCounter]["name"] = split[1]
                     
@@ -819,17 +868,17 @@ class WireguardConfiguration:
                     """ % self.Name
                     , newPeer)
             for p in peers:
-                subprocess.check_output(f"wg set {self.Name} peer {p['id']} allowed-ips {p['allowed_ip']}",
-                                        shell=True, stderr=subprocess.STDOUT)
                 presharedKeyExist = len(p['preshared_key']) > 0
                 rd = random.Random()
-                uid = uuid.UUID(int=rd.getrandbits(128), version=4)
+                uid = str(uuid.UUID(int=rd.getrandbits(128), version=4))
                 if presharedKeyExist:
-                    with open(f"{uid}", "w+") as f:
+                    with open(uid, "w+") as f:
                         f.write(p['preshared_key'])
-                        
-                subprocess.check_output(f"wg set {self.Name} peer {p['id']} allowed-ips {p['allowed_ip']}{f' preshared-key {uid}' if presharedKeyExist else ''}",
+                
+                subprocess.check_output(f"wg set {self.Name} peer {p['id']} allowed-ips {p['allowed_ip'].replace(' ', '')}{f' preshared-key {uid}' if presharedKeyExist else ''}",
                                         shell=True, stderr=subprocess.STDOUT)
+                if presharedKeyExist:
+                    os.remove(uid)
             subprocess.check_output(
                 f"wg-quick save {self.Name}", shell=True, stderr=subprocess.STDOUT)
             
@@ -863,14 +912,14 @@ class WireguardConfiguration:
                 
                 presharedKeyExist = len(p['preshared_key']) > 0
                 rd = random.Random()
-                uid = uuid.UUID(int=rd.getrandbits(128), version=4)
+                uid = str(uuid.UUID(int=rd.getrandbits(128), version=4))
                 if presharedKeyExist:
-                    with open(f"{uid}", "w+") as f:
+                    with open(uid, "w+") as f:
                         f.write(p['preshared_key'])
                         
                 subprocess.check_output(f"wg set {self.Name} peer {p['id']} allowed-ips {p['allowed_ip'].replace(' ', '')}{f' preshared-key {uid}' if presharedKeyExist else ''}",
                                         shell=True, stderr=subprocess.STDOUT)
-                if presharedKeyExist: os.remove(str(uid))
+                if presharedKeyExist: os.remove(uid)
             else:
                 return ResponseObject(False, "Failed to allow access of peer " + i)
         if not self.__wgSave():
@@ -1173,10 +1222,10 @@ class WireguardConfiguration:
                                                     shell=True, stderr=subprocess.STDOUT)
             except subprocess.CalledProcessError as exc:
                 return False, str(exc.output.strip().decode("utf-8"))
-            
+        self.__parseConfigurationFile()
         self.getStatus()
         return True, None
-        
+
     def getPeersList(self):
         self.__getPeers()
         return self.Peers
@@ -1229,7 +1278,7 @@ class WireguardConfiguration:
         files.sort(key=lambda x: x[1], reverse=True)
         
         for f, ct in files:
-            if _regexMatch(f"^({self.Name})_(.*)\\.(conf)$", f):
+            if RegexMatch(f"^({self.Name})_(.*)\\.(conf)$", f):
                 s = re.search(f"^({self.Name})_(.*)\\.(conf)$", f)
                 date = s.group(2)
                 d = {
@@ -1284,32 +1333,29 @@ class WireguardConfiguration:
         original = []
         dataChanged = False
         with open(os.path.join(DashboardConfig.GetConfig("Server", "wg_conf_path")[1], f'{self.Name}.conf'), 'r') as f:
-            original = f.readlines()
-            original = [l.rstrip("\n") for l in original]
+            original = [l.rstrip("\n") for l in f.readlines()]
             allowEdit = ["Address", "PreUp", "PostUp", "PreDown", "PostDown", "ListenPort"]
             start = original.index("[Interface]")
-            for line in range(start+1, len(original)):
-                if original[line] == "[Peer]":
-                    break
-                split = re.split(r'\s*=\s*', original[line], maxsplit=1)
+            try:
+                end = original.index("[Peer]")
+            except ValueError as e:
+                end = len(original)
+            new = ["[Interface]"]
+            peerFound = False
+            for line in range(start, end):
+                split = re.split(r'\s*=\s*', original[line], 1)
                 if len(split) == 2:
-                    key = split[0]
-                    value = split[1]
-                    if key in allowEdit and key in newData.keys() and value != newData[key]:
-                        split[1] = newData[key]
-                        original[line] = " = ".join([split[0], str(split[1])])  # Convert to string here
-                        if isinstance(getattr(self, key), bool):
-                            setattr(self, key, _strToBool(newData[key]))
-                        else:
-                            setattr(self, key, str(newData[key]))
-                        dataChanged = True
-                print(original[line])
-        if dataChanged:
-            with open(os.path.join(DashboardConfig.GetConfig("Server", "wg_conf_path")[1], f'{self.Name}.conf'), 'w') as f:
-                f.write("\n".join(original))
+                    if split[0] not in allowEdit:
+                        new.append(original[line])
+            for key in allowEdit:
+                new.insert(1, f"{key} = {newData[key].strip()}")
+            new.append("")
+            for line in range(end, len(original)):
+                new.append(original[line])            
             self.backupConfigurationFile()
-        
-        
+            with open(os.path.join(DashboardConfig.GetConfig("Server", "wg_conf_path")[1], f'{self.Name}.conf'), 'w') as f:
+                f.write("\n".join(new))
+                
         status, msg = self.toggleConfiguration()        
         if not status:
             return False, msg
@@ -1342,7 +1388,46 @@ class WireguardConfiguration:
         except Exception as e:
             return False, str(e)
         return True, None
-        
+    
+    def getAvailableIP(self, all: bool = False) -> tuple[bool, list[str]] | tuple[bool, None]:
+        if len(self.Address) < 0:
+            return False, None
+        address = self.Address.split(',')
+        existedAddress = []
+        availableAddress = []
+        for p in self.Peers:
+            if len(p.allowed_ip) > 0:
+                add = p.allowed_ip.split(',')
+                for i in add:
+                    a, c = i.split('/')
+                    try:
+                        existedAddress.append(ipaddress.ip_address(a.replace(" ", "")))
+                    except ValueError as error:
+                        print(f"[WGDashboard] Error: {configName} peer {p.id} have invalid ip")
+        for p in self.getRestrictedPeersList():
+            if len(p.allowed_ip) > 0:
+                add = p.allowed_ip.split(',')
+                for i in add:
+                    a, c = i.split('/')
+                    existedAddress.append(ipaddress.ip_address(a.replace(" ", "")))
+        for i in address:
+            addressSplit, cidr = i.split('/')
+            existedAddress.append(ipaddress.ip_address(addressSplit.replace(" ", "")))
+        for i in address:
+            network = ipaddress.ip_network(i.replace(" ", ""), False)
+            count = 0
+            for h in network.hosts():
+                if h not in existedAddress:
+                    availableAddress.append(ipaddress.ip_network(h).compressed)
+                    count += 1
+                    if not all:
+                        if network.version == 6 and count > 255:
+                            break
+        return True, availableAddress
+
+"""
+Peer
+"""      
 class Peer:
     def __init__(self, tableData, configuration: WireguardConfiguration):
         self.configuration = configuration
@@ -1392,32 +1477,32 @@ class Peer:
 
         if allowed_ip in existingAllowedIps:
             return ResponseObject(False, "Allowed IP already taken by another peer")
-        if not _checkIPWithRange(endpoint_allowed_ip):
+        if not ValidateIPAddressesWithRange(endpoint_allowed_ip):
             return ResponseObject(False, f"Endpoint Allowed IPs format is incorrect")
-        if len(dns_addresses) > 0 and not _checkDNS(dns_addresses):
+        if len(dns_addresses) > 0 and not ValidateDNSAddress(dns_addresses):
             return ResponseObject(False, f"DNS format is incorrect")
         if mtu < 0 or mtu > 1460:
             return ResponseObject(False, "MTU format is not correct")
         if keepalive < 0:
             return ResponseObject(False, "Persistent Keepalive format is not correct")
         if len(private_key) > 0:
-            pubKey = _generatePublicKey(private_key)
+            pubKey = GenerateWireguardPublicKey(private_key)
             if not pubKey[0] or pubKey[1] != self.id:
                 return ResponseObject(False, "Private key does not match with the public key")
         try:
             rd = random.Random()
-            uid = uuid.UUID(int=rd.getrandbits(128), version=4)
+            uid = str(uuid.UUID(int=rd.getrandbits(128), version=4))
             pskExist = len(preshared_key) > 0
             
             if pskExist:
-                with open(f"{uid}", "w+") as f:
+                with open(uid, "w+") as f:
                     f.write(preshared_key)
             newAllowedIPs = allowed_ip.replace(" ", "")
             updateAllowedIp = subprocess.check_output(
                 f"wg set {self.configuration.Name} peer {self.id} allowed-ips {newAllowedIPs}{f' preshared-key {uid}' if pskExist else ''}",
                 shell=True, stderr=subprocess.STDOUT)
             
-            if pskExist: os.remove(str(uid))
+            if pskExist: os.remove(uid)
             
             if len(updateAllowedIp.decode().strip("\n")) != 0:
                 return ResponseObject(False,
@@ -1508,11 +1593,10 @@ PersistentKeepalive = {str(self.keepalive)}
         except Exception as e:
             return False
         return True
-# Regex Match
-def regex_match(regex, text):
-    pattern = re.compile(regex)
-    return pattern.search(text) is not None
 
+"""
+Dashboard API Key
+"""
 class DashboardAPIKey:
     def __init__(self, Key: str, CreatedAt: str, ExpiredAt: str):
         self.Key = Key
@@ -1522,6 +1606,9 @@ class DashboardAPIKey:
     def toJson(self):
         return self.__dict__
 
+"""
+Dashboard Configuration
+"""
 class DashboardConfig:
 
     def __init__(self):
@@ -1529,7 +1616,7 @@ class DashboardConfig:
             open(DASHBOARD_CONF, "x")
         self.__config = configparser.ConfigParser(strict=False)
         self.__config.read_file(open(DASHBOARD_CONF, "r+"))
-        self.hiddenAttribute = ["totp_key"]
+        self.hiddenAttribute = ["totp_key", "auth_req"]
         self.__default = {
             "Account": {
                 "username": wgd_user,
@@ -1571,7 +1658,7 @@ class DashboardConfig:
                 "h4": wgd_h4
             },
             "Other": {
-                "welcome_session": wgd_welcome
+                "welcome_session": "true"
             },
             "Database":{
                 "type": "sqlite"
@@ -1619,11 +1706,10 @@ class DashboardConfig:
         if type(value) is str and len(value) == 0:
             return False, "Field cannot be empty!"
         if key == "peer_global_dns":
-            return _checkDNS(value)
+            return ValidateDNSAddress(value)
         if key == "peer_endpoint_allowed_ip":
             value = value.split(",")
             for i in value:
-                i = i.strip()  # Remove leading/trailing whitespace
                 try:
                     ipaddress.ip_network(i, strict=False)
                 except Exception as e:
@@ -1719,128 +1805,9 @@ class DashboardConfig:
                     the_dict[section][key] = self.GetConfig(section, key)[1]
         return the_dict
 
-'''
-Private Functions
-'''
-
-def _strToBool(value: str) -> bool:
-    return value.lower() in ("yes", "true", "t", "1", 1)
-
-def _regexMatch(regex, text):
-    pattern = re.compile(regex)
-    return pattern.search(text) is not None
-
-def _getConfigurationList(startup: bool = False):
-    confs = os.listdir(DashboardConfig.GetConfig("Server", "wg_conf_path")[1])
-    confs.sort()
-    for i in confs:
-        if _regexMatch("^(.{1,}).(conf)$", i):
-            i = i.replace('.conf', '')
-            try:
-                if i in WireguardConfigurations.keys():
-                    if WireguardConfigurations[i].configurationFileChanged():
-                        WireguardConfigurations[i] = WireguardConfiguration(i)
-                else:
-                    WireguardConfigurations[i] = WireguardConfiguration(i, startup=startup)
-            except WireguardConfiguration.InvalidConfigurationFileException as e:
-                print(f"{i} have an invalid configuration file.")
-    
-def _checkIPWithRange(ip):
-    ip_patterns = (
-        r"((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.|\/)){4}([0-9]{1,2})(,|$)",
-        r"[0-9a-fA-F]{0,4}(:([0-9a-fA-F]{0,4})){1,7}\/([0-9]{1,3})(,|$)"
-    )
-
-    for match_pattern in ip_patterns:
-        match_result = regex_match(match_pattern, ip)
-        if match_result:
-            result = match_result
-            break
-    else:
-        result = None
-
-    return result
-
-def _checkIP(ip):
-    ip_patterns = (
-        r"((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.|$)){4}",
-        r"[0-9a-fA-F]{0,4}(:([0-9a-fA-F]{0,4})){1,7}$"
-    )
-    for match_pattern in ip_patterns:
-        match_result = regex_match(match_pattern, ip)
-        if match_result:
-            result = match_result
-            break
-    else:
-        result = None
-
-    return result
-
-def _checkDNS(dns):
-    dns = dns.replace(' ', '').split(',')
-    for i in dns:
-        if not _checkIP(i) and not regex_match(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z]{0,61}[a-z]", i):
-            return False, f"{i} does not appear to be an valid DNS address"
-    return True, ""
-
-def _generatePublicKey(privateKey) -> tuple[bool, str] | tuple[bool, None]:
-    try:
-        publicKey = subprocess.check_output(f"wg pubkey", input=privateKey.encode(), shell=True,
-                                            stderr=subprocess.STDOUT)
-        return True, publicKey.decode().strip('\n')
-    except subprocess.CalledProcessError:
-        return False, None
-
-def _generatePrivateKey() -> tuple[bool, str]:
-    try:
-        publicKey = subprocess.check_output(f"wg genkey", shell=True,
-                                            stderr=subprocess.STDOUT)
-        return True, publicKey.decode().strip('\n')
-    except subprocess.CalledProcessError:
-        return False, None
-
-def _getWireguardConfigurationAvailableIP(configName: str, all: bool = False) -> tuple[bool, list[str]] | tuple[bool, None]:
-    if configName not in WireguardConfigurations.keys():
-        return False, None
-    configuration = WireguardConfigurations[configName]
-    if len(configuration.Address) > 0:
-        address = configuration.Address.split(',')
-        existedAddress = []
-        availableAddress = []
-        for p in configuration.Peers:
-            if len(p.allowed_ip) > 0:
-                add = p.allowed_ip.split(',')
-                for i in add:
-                    a, c = i.split('/')
-                    try:
-                        existedAddress.append(ipaddress.ip_address(a.replace(" ", "")))
-                    except ValueError as error:
-                        print(f"[WGDashboard] Error: {configName} peer {p.id} have invalid ip")
-
-        for p in configuration.getRestrictedPeersList():
-            if len(p.allowed_ip) > 0:
-                add = p.allowed_ip.split(',')
-                for i in add:
-                    a, c = i.split('/')
-                    existedAddress.append(ipaddress.ip_address(a.replace(" ", "")))
-        
-        for i in address:
-            addressSplit, cidr = i.split('/')
-            existedAddress.append(ipaddress.ip_address(addressSplit.replace(" ", "")))
-        for i in address:
-            network = ipaddress.ip_network(i.replace(" ", ""), False)
-            count = 0
-            for h in network.hosts():
-                if h not in existedAddress:
-                    availableAddress.append(ipaddress.ip_network(h).compressed)
-                    count += 1
-                    if not all:
-                        if network.version == 6 and count > 255:
-                            break
-        return True, availableAddress
-
-    return False, None
-
+"""
+Database Connection Functions
+"""
 
 sqldb = sqlite3.connect(os.path.join(CONFIGURATION_PATH, 'db', 'wgdashboard.db'), check_same_thread=False)
 sqldb.row_factory = sqlite3.Row
@@ -1856,7 +1823,6 @@ def sqlSelect(statement: str, paramters: tuple = ()) -> sqlite3.Cursor:
             print("[WGDashboard] SQLite Error:" + str(error) + " | Statement: " + statement)
             return []
 
-
 def sqlUpdate(statement: str, paramters: tuple = ()) -> sqlite3.Cursor:
     with sqldb:
         cursor = sqldb.cursor()
@@ -1867,6 +1833,7 @@ def sqlUpdate(statement: str, paramters: tuple = ()) -> sqlite3.Cursor:
             sqldb.commit()
         except sqlite3.OperationalError as error:
             print("[WGDashboard] SQLite Error:" + str(error) + " | Statement: " + statement)
+
 
 DashboardConfig = DashboardConfig()
 _, APP_PREFIX = DashboardConfig.GetConfig("Server", "app_prefix")
@@ -1883,7 +1850,7 @@ API Routes
 @app.before_request
 def auth_req():
     if request.method.lower() == 'options':
-        return ResponseObject(True)
+        return ResponseObject(True)        
 
     DashboardConfig.APIAccessed = False
     if "api" in request.path:
@@ -1934,22 +1901,28 @@ def auth_req():
                 return response
 
 @app.route(f'{APP_PREFIX}/api/handshake', methods=["GET", "OPTIONS"])
-def API_ValidateAPIKey():
+def API_Handshake():
     return ResponseObject(True)
 
 @app.get(f'{APP_PREFIX}/api/validateAuthentication')
 def API_ValidateAuthentication():
+    token = request.cookies.get("authToken")
     if DashboardConfig.GetConfig("Server", "auth_req")[1]:
-        token = request.cookies.get("authToken")
-        if (token is None or token == "" or "username" not in session or session["username"] != token):
+        if token is None or token == "" or "username" not in session or session["username"] != token:
             return ResponseObject(False, "Invalid authentication.")
     return ResponseObject(True)
+
+@app.get(f'{APP_PREFIX}/api/requireAuthentication')
+def API_RequireAuthentication():
+    return ResponseObject(data=DashboardConfig.GetConfig("Server", "auth_req")[1])
 
 @app.post(f'{APP_PREFIX}/api/authenticate')
 def API_AuthenticateLogin():
     data = request.get_json()
+    if not DashboardConfig.GetConfig("Server", "auth_req")[1]:
+        return ResponseObject(True, DashboardConfig.GetConfig("Other", "welcome_session")[1])
+    
     if DashboardConfig.APIAccessed:
-        
         authToken = hashlib.sha256(f"{request.headers.get('wg-dashboard-apikey')}{datetime.now()}".encode()).hexdigest()
         session['username'] = authToken
         resp = ResponseObject(True, DashboardConfig.GetConfig("Other", "welcome_session")[1])
@@ -1988,7 +1961,7 @@ def API_SignOut():
 
 @app.route(f'{APP_PREFIX}/api/getWireguardConfigurations', methods=["GET"])
 def API_getWireguardConfigurations():
-    _getConfigurationList()
+    InitWireguardConfigurationsList()
     return ResponseObject(data=[wc for wc in WireguardConfigurations.values()])
 
 @app.route(f'{APP_PREFIX}/api/addWireguardConfiguration', methods=["POST"])
@@ -2113,8 +2086,8 @@ def API_getAllWireguardConfigurationBackup():
     files.sort(key=lambda x: x[1], reverse=True)
 
     for f, ct in files:
-        if _regexMatch(f"^(.*)_(.*)\\.(conf)$", f):
-            s = re.search(f"^(.*)_(.*)\\.(conf)$", f)
+        if RegexMatch(r"^(.*)_(.*)\.(conf)$", f):
+            s = re.search(r"^(.*)_(.*)\.(conf)$", f)
             name = s.group(1)
             if name not in existingConfiguration:
                 if name not in data['NonExistingConfigurations'].keys():
@@ -2189,7 +2162,7 @@ def API_updateDashboardConfigurationItem():
     if data['section'] == "Server":
         if data['key'] == 'wg_conf_path':
             WireguardConfigurations.clear()
-            _getConfigurationList()
+            InitWireguardConfigurationsList()
             
     return ResponseObject(True, data=DashboardConfig.GetConfig(data["section"], data["key"])[1])
 
@@ -2289,7 +2262,10 @@ def API_sharePeer_create():
         return ResponseObject(False, "Please specify configuration and peers")
     activeLink = AllPeerShareLinks.getLink(Configuration, Peer)
     if len(activeLink) > 0:
-        return ResponseObject(False, "This peer is already sharing, please stop sharing first.")
+        return ResponseObject(True, 
+                              "This peer is already sharing. Please view data for shared link.",
+                                data=activeLink[0]
+        )
     status, message = AllPeerShareLinks.addLink(Configuration, Peer, ExpireDate)
     if not status:
         return ResponseObject(status, message)
@@ -2376,7 +2352,7 @@ def API_addPeers(configName):
                 return ResponseObject(False, "Please provide at least public_key and allowed_ips")
             if not config.getStatus():
                 config.toggleConfiguration()
-            availableIps = _getWireguardConfigurationAvailableIP(configName)
+            availableIps = config.getAvailableIP()
             if bulkAdd:
                 if type(preshared_key_bulkAdd) is not bool:
                     preshared_key_bulkAdd = False
@@ -2390,11 +2366,11 @@ def API_addPeers(configName):
                                           f"The maximum number of peers can add is {len(availableIps[1])}")
                 keyPairs = []
                 for i in range(bulkAddAmount):
-                    newPrivateKey = _generatePrivateKey()[1]
+                    newPrivateKey = GenerateWireguardPrivateKey()[1]
                     keyPairs.append({
                         "private_key": newPrivateKey,
-                        "id": _generatePublicKey(newPrivateKey)[1],
-                        "preshared_key": (_generatePrivateKey()[1] if preshared_key_bulkAdd else ""),
+                        "id": GenerateWireguardPublicKey(newPrivateKey)[1],
+                        "preshared_key": (GenerateWireguardPrivateKey()[1] if preshared_key_bulkAdd else ""),
                         "allowed_ip": availableIps[1][i],
                         "name": f"BulkPeer #{(i + 1)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
                         "DNS": dns_addresses,
@@ -2465,7 +2441,9 @@ def API_downloadAllPeers(configName):
 
 @app.get(f"{APP_PREFIX}/api/getAvailableIPs/<configName>")
 def API_getAvailableIPs(configName):
-    status, ips = _getWireguardConfigurationAvailableIP(configName)
+    if configName not in WireguardConfigurations.keys():
+        return ResponseObject(False, "Configuration does not exist")
+    status, ips = WireguardConfigurations.get(configName).getAvailableIP()
     return ResponseObject(status=status, data=ips)
 
 @app.get(f'{APP_PREFIX}/api/getWireguardConfigurationInfo')
@@ -2749,9 +2727,6 @@ class Locale:
     
 Locale = Locale()
 
-
-
-
 @app.get(f'{APP_PREFIX}/api/locale')
 def API_Locale_CurrentLang():    
     return ResponseObject(data=Locale.getLanguage())
@@ -2767,7 +2742,81 @@ def API_Locale_Update():
         return ResponseObject(False, "Please specify a lang_id")
     Locale.updateLanguage(data['lang_id'])
     return ResponseObject(data=Locale.getLanguage())
+
+@app.get(f'{APP_PREFIX}/api/systemStatus')
+def API_SystemStatus():
+    cpu_percpu = psutil.cpu_percent(interval=0.5, percpu=True)
+    cpu = psutil.cpu_percent(interval=0.5)
+    memory = psutil.virtual_memory()
+    swap_memory = psutil.swap_memory()
+    disks = psutil.disk_partitions()
+    network = psutil.net_io_counters(pernic=True, nowrap=True)
     
+    status = {
+        "cpu": {
+            "cpu_percent": cpu,
+            "cpu_percent_per_cpu": cpu_percpu,
+        },
+        "memory": {
+            "virtual_memory": {
+                "total": memory.total,
+                "available": memory.available,
+                "percent": memory.percent
+            },
+            "swap_memory": {
+                "total": swap_memory.total,
+                "used": swap_memory.used,
+                "percent": swap_memory.percent
+            }
+        },
+        "disk": {},
+        "network": {},
+        "process": {
+            "cpu_top_10": [],
+            "memory_top_10": []
+        }
+    }
+    for d in disks:
+        detail = psutil.disk_usage(d.mountpoint)
+        status['disk'][d.mountpoint] = {
+            "total": detail.total,
+            "used": detail.used,
+            "free": detail.free,
+            "percent": detail.percent
+        }
+    for i in network.keys():
+        status["network"][i] = {
+            "byte_sent": network[i].bytes_sent,
+            "byte_recv": network[i].bytes_recv
+        }
+        
+    processes = list(psutil.process_iter())
+    status["process"]["cpu_top_10"] = sorted(list(map(lambda x : {
+        "name": x.name(),
+        "command": " ".join(x.cmdline()),
+        "pid": x.pid,
+        "cpu_percent": x.cpu_percent()
+    }, processes)), key=lambda x : x['cpu_percent'], reverse=True)[:10]
+    status["process"]["memory_top_10"] = sorted(list(map(lambda x : {
+        "name": x.name(),
+        "command": " ".join(x.cmdline()),
+        "pid": x.pid,
+        "memory_percent": x.memory_percent()
+    }, processes)), key=lambda x : x['memory_percent'], reverse=True)[:10]
+    
+    
+    # for proc in psutil.process_iter():
+    #     try:
+    #         status["process"].append({
+    #             "pid": proc.pid,
+    #             "name": proc.name(),
+    #             "memory_percent": proc.memory_percent(),
+    #             "cpu_percent": proc.cpu_percent()
+    #         })
+    #     except (psutil.NoSuchProcess, psutil.AccessDenied):
+    #         pass
+    return ResponseObject(data=status)
+
 
 @app.get(f'{APP_PREFIX}/')
 def index():
@@ -2804,23 +2853,37 @@ def waitressInit():
     _, app_port = DashboardConfig.GetConfig("Server", "app_port")
     return app_ip, app_port
 
+def InitWireguardConfigurationsList(startup: bool = False):
+    confs = os.listdir(DashboardConfig.GetConfig("Server", "wg_conf_path")[1])
+    confs.sort()
+    for i in confs:
+        if RegexMatch("^(.{1,}).(conf)$", i):
+            i = i.replace('.conf', '')
+            try:
+                if i in WireguardConfigurations.keys():
+                    if WireguardConfigurations[i].configurationFileChanged():
+                        WireguardConfigurations[i] = WireguardConfiguration(i)
+                else:
+                    WireguardConfigurations[i] = WireguardConfiguration(i, startup=startup)
+            except WireguardConfiguration.InvalidConfigurationFileException as e:
+                print(f"{i} have an invalid configuration file.")
+
 AllPeerShareLinks: PeerShareLinks = PeerShareLinks()
 AllPeerJobs: PeerJobs = PeerJobs()
 JobLogger: PeerJobLogger = PeerJobLogger()
-logger: DashboardLogger = DashboardLogger()
+DashboardLogger: DashboardLogger = DashboardLogger()
 _, app_ip = DashboardConfig.GetConfig("Server", "app_ip")
 _, app_port = DashboardConfig.GetConfig("Server", "app_port")
 _, WG_CONF_PATH = DashboardConfig.GetConfig("Server", "wg_conf_path")
 
 WireguardConfigurations: dict[str, WireguardConfiguration] = {}
-_getConfigurationList(startup=True)
+InitWireguardConfigurationsList(startup=True)
 
-# Start background threads
 def startThreads():
     bgThread = threading.Thread(target=backGroundThread)
     bgThread.daemon = True
     bgThread.start()
-
+    
     scheduleJobThread = threading.Thread(target=peerJobScheduleBackgroundThread)
     scheduleJobThread.daemon = True
     scheduleJobThread.start()
