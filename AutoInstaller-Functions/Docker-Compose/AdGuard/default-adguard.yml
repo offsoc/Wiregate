@@ -61,6 +61,8 @@ services:
     hostname: wiregate
     cap_add:
       - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun  
     restart: unless-stopped
     volumes: 
         - pf_conf:/WireGate/iptable-rules/
